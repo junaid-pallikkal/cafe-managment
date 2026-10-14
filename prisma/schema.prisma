@@ -1,0 +1,205 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  ADMIN
+  CAPTAIN
+  KITCHEN
+  BILLING
+}
+
+enum OrderType {
+  DINE_IN
+  TAKEAWAY
+}
+
+enum OrderStatus {
+  DRAFT
+  SENT_TO_KITCHEN
+  PREPARING
+  READY
+  SERVED
+  BILL_REQUESTED
+  PAID
+  CANCELLED
+}
+
+enum ItemStatus {
+  QUEUED
+  PREPARING
+  READY
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+  CARD
+  OTHER
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  createdOrders Order[]    @relation("OrderCreator")
+  payments      Payment[]  @relation("CashierPayments")
+  purchases     Purchase[]
+  expenses      Expense[]
+  auditLogs     AuditLog[]
+}
+
+model DiningTable {
+  id        String   @id @default(cuid())
+  label     String   @unique
+  capacity  Int      @default(4)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  orders    Order[]
+}
+
+model MenuCategory {
+  id        String     @id @default(cuid())
+  name      String     @unique
+  sortOrder Int        @default(0)
+  isActive  Boolean    @default(true)
+  items     MenuItem[]
+}
+
+model MenuItem {
+  id          String       @id @default(cuid())
+  name        String
+  description String?
+  price       Decimal      @db.Decimal(10, 2)
+  isAvailable Boolean      @default(true)
+  categoryId  String
+  category    MenuCategory @relation(fields: [categoryId], references: [id])
+  orderItems  OrderItem[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([categoryId, isAvailable])
+}
+
+model Order {
+  id              String       @id @default(cuid())
+  orderNumber     Int          @unique @default(autoincrement())
+  type            OrderType
+  status          OrderStatus  @default(DRAFT)
+  tableId         String?
+  table           DiningTable? @relation(fields: [tableId], references: [id])
+  createdById     String
+  createdBy       User         @relation("OrderCreator", fields: [createdById], references: [id])
+  items           OrderItem[]
+  payments        Payment[]
+  notes           String?
+  subtotal        Decimal      @db.Decimal(10, 2) @default(0)
+  discountAmount  Decimal      @db.Decimal(10, 2) @default(0)
+  taxAmount       Decimal      @db.Decimal(10, 2) @default(0)
+  serviceCharge   Decimal      @db.Decimal(10, 2) @default(0)
+  total           Decimal      @db.Decimal(10, 2) @default(0)
+  sentAt          DateTime?
+  readyAt         DateTime?
+  billRequestedAt DateTime?
+  paidAt          DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([status, createdAt])
+  @@index([type, createdAt])
+  @@index([tableId, status])
+}
+
+model OrderItem {
+  id           String     @id @default(cuid())
+  orderId      String
+  order        Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId   String?
+  menuItem     MenuItem?  @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+  nameSnapshot String
+  unitPrice    Decimal    @db.Decimal(10, 2)
+  quantity     Int
+  notes        String?
+  status       ItemStatus @default(QUEUED)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([orderId, status])
+}
+
+model Payment {
+  id        String        @id @default(cuid())
+  orderId   String
+  order     Order         @relation(fields: [orderId], references: [id])
+  cashierId String
+  cashier   User          @relation("CashierPayments", fields: [cashierId], references: [id])
+  receiptNo String        @unique
+  amount    Decimal       @db.Decimal(10, 2)
+  method    PaymentMethod
+  reference String?
+  createdAt DateTime      @default(now())
+
+  @@index([createdAt, method])
+}
+
+model Purchase {
+  id          String   @id @default(cuid())
+  description String
+  supplier    String?
+  reference   String?
+  category    String
+  quantity    Decimal? @db.Decimal(10, 3)
+  unit        String?
+  amount      Decimal  @db.Decimal(10, 2)
+  purchasedAt DateTime @default(now())
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  @@index([purchasedAt, category])
+}
+
+model Expense {
+  id          String         @id @default(cuid())
+  category    String
+  description String
+  amount      Decimal        @db.Decimal(10, 2)
+  method      PaymentMethod?
+  payee       String?
+  spentAt     DateTime       @default(now())
+  createdById String
+  createdBy   User           @relation(fields: [createdById], references: [id])
+  notes       String?
+  createdAt   DateTime       @default(now())
+
+  @@index([spentAt, category])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String
+  actor      User     @relation(fields: [actorId], references: [id])
+  action     String
+  entityType String
+  entityId   String
+  reason     String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorId, createdAt])
+}
